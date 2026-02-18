@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TraceCam">
+<title>TraceCam</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0d14;
+    --surface: #13131c;
+    --panel: #1c1c28;
+    --border: rgba(255,255,255,0.08);
+    --accent: #ff4d6d;
+    --accent2: #7b61ff;
+    --accent3: #00d4aa;
+    --text: #f0f0f8;
+    --muted: #5a5a78;
+  }
+
+- { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+body {
+background: var(–bg);
+color: var(–text);
+font-family: ‘DM Sans’, sans-serif;
+height: 100dvh;
+overflow: hidden;
+display: flex;
+flex-direction: column;
+user-select: none;
+}
+
+header {
+display: flex;
+align-items: center;
+justify-content: space-between;
+padding: 12px 16px;
+background: var(–surface);
+border-bottom: 1px solid var(–border);
+flex-shrink: 0;
+z-index: 20;
+}
+
+.logo {
+font-family: ‘Syne’, sans-serif;
+font-weight: 800;
+font-size: 20px;
+background: linear-gradient(135deg, var(–accent3), var(–accent2));
+-webkit-background-clip: text;
+-webkit-text-fill-color: transparent;
+}
+.logo em {
+font-style: normal;
+font-weight: 300;
+font-size: 12px;
+-webkit-text-fill-color: rgba(255,255,255,0.3);
+margin-left: 6px;
+}
+
+.header-btns { display: flex; gap: 8px; }
+
+.icon-btn {
+width: 36px; height: 36px;
+border-radius: 10px;
+border: 1px solid var(–border);
+background: var(–panel);
+color: var(–text);
+display: flex; align-items: center; justify-content: center;
+cursor: pointer;
+transition: all 0.15s;
+}
+.icon-btn:active { transform: scale(0.9); background: var(–accent2); }
+
+/* ── VIEW ── */
+.view {
+flex: 1;
+position: relative;
+overflow: hidden;
+background: #080810;
+touch-action: none;
+}
+
+/* Camera — bottom layer */
+video {
+position: absolute; inset: 0;
+width: 100%; height: 100%;
+object-fit: cover;
+display: none;
+z-index: 1;
+}
+video.active { display: block; }
+
+/* Uploaded image container — draggable, pinch-zoomable, rotatable */
+#imgContainer {
+position: absolute;
+top: 50%; left: 50%;
+width: 80%; height: 80%;
+max-width: 600px; max-height: 600px;
+display: none;
+z-index: 2;
+touch-action: none;
+cursor: move;
+}
+#imgContainer.active { display: block; }
+
+#overlayImg {
+width: 100%; height: 100%;
+object-fit: contain;
+opacity: 0.5;
+pointer-events: none;
+user-select: none;
+}
+
+/* Corner resize handle */
+.resize-handle {
+position: absolute;
+bottom: -10px; right: -10px;
+width: 40px; height: 40px;
+background: var(–accent2);
+border-radius: 50%;
+border: 3px solid var(–bg);
+cursor: nwse-resize;
+display: flex;
+align-items: center;
+justify-content: center;
+font-size: 16px;
+z-index: 3;
+box-shadow: 0 2px 12px rgba(123,97,255,0.4);
+touch-action: none;
+}
+
+/* Status pills */
+.status-bar {
+position: absolute;
+top: 10px; left: 50%;
+transform: translateX(-50%);
+display: flex; gap: 6px;
+z-index: 5;
+pointer-events: none;
+}
+
+.pill {
+padding: 5px 11px;
+border-radius: 20px;
+font-size: 11px; font-weight: 600;
+display: flex; align-items: center; gap: 5px;
+backdrop-filter: blur(12px);
+border: 1px solid rgba(255,255,255,0.1);
+}
+.pill.cam { background: rgba(255,77,109,0.25); color: #ff8fa3; }
+.pill.img { background: rgba(123,97,255,0.25); color: #b8aaff; }
+.dot { width: 6px; height: 6px; border-radius: 50%; }
+.pill.cam .dot { background: var(–accent); animation: blink 1.2s infinite; }
+.pill.img .dot { background: var(–accent2); }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+/* Gesture hint */
+.hint {
+position: absolute;
+bottom: 20px; left: 50%;
+transform: translateX(-50%);
+background: rgba(20,20,35,0.8);
+backdrop-filter: blur(16px);
+border: 1px solid rgba(255,255,255,0.15);
+border-radius: 20px;
+padding: 8px 16px;
+font-size: 12px;
+color: rgba(255,255,255,0.7);
+z-index: 6;
+pointer-events: none;
+opacity: 0;
+transition: opacity 0.3s;
+}
+.hint.show { opacity: 1; }
+
+/* Placeholder */
+.placeholder {
+position: absolute; inset: 0;
+display: flex; flex-direction: column;
+align-items: center; justify-content: center;
+gap: 14px; z-index: 4;
+padding: 28px; text-align: center;
+transition: opacity 0.3s;
+}
+.placeholder.hidden { opacity: 0; pointer-events: none; }
+
+.ph-icon { font-size: 48px; margin-bottom: 4px; }
+.placeholder h2 { font-family: ‘Syne’, sans-serif; font-size: 22px; }
+.placeholder p { font-size: 13px; color: var(–muted); line-height: 1.6; max-width: 240px; }
+
+.steps { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 280px; margin-top: 4px; }
+
+.step {
+display: flex; align-items: center; gap: 12px;
+background: var(–panel); border: 1px solid var(–border);
+border-radius: 14px; padding: 12px 14px;
+cursor: pointer; transition: all 0.15s;
+}
+.step:active { border-color: var(–accent2); transform: scale(0.97); }
+.step-num {
+width: 26px; height: 26px; border-radius: 50%;
+display: flex; align-items: center; justify-content: center;
+font-size: 13px; font-weight: 700; flex-shrink: 0;
+}
+.s1 { background: rgba(255,77,109,0.2); color: var(–accent); }
+.s2 { background: rgba(123,97,255,0.2); color: var(–accent2); }
+.step-text strong { display: block; font-size: 14px; color: var(–text); }
+.step-text small { font-size: 12px; color: var(–muted); }
+
+/* ── CONTROLS ── */
+.controls {
+background: var(–surface);
+border-top: 1px solid var(–border);
+flex-shrink: 0;
+padding: 12px 16px 16px;
+display: flex; flex-direction: column; gap: 12px;
+z-index: 20;
+}
+
+.btn-row { display: flex; gap: 8px; }
+
+.act-btn {
+flex: 1;
+padding: 11px 6px;
+border-radius: 13px;
+border: 1px solid var(–border);
+background: var(–panel);
+color: var(–text);
+font-family: ‘DM Sans’, sans-serif;
+font-size: 12px; font-weight: 500;
+cursor: pointer;
+display: flex; flex-direction: column;
+align-items: center; gap: 3px;
+transition: all 0.15s;
+}
+.act-btn .ico { font-size: 22px; }
+.act-btn:active { transform: scale(0.95); }
+
+.act-btn.cam-btn { border-color: rgba(255,77,109,0.3); }
+.act-btn.cam-btn.on { background: rgba(255,77,109,0.12); border-color: var(–accent); color: var(–accent); }
+
+.act-btn.img-btn { border-color: rgba(123,97,255,0.3); }
+.act-btn.img-btn.loaded { background: rgba(123,97,255,0.12); border-color: var(–accent2); color: var(–accent2); }
+
+.act-btn.flip-btn { flex: 0.55; border-color: rgba(0,212,170,0.3); }
+.act-btn.flip-btn:active { background: rgba(0,212,170,0.12); border-color: var(–accent3); color: var(–accent3); }
+
+/* Slider rows */
+.slider-row {
+display: flex; align-items: center; gap: 10px;
+opacity: 0.3; pointer-events: none;
+transition: opacity 0.3s;
+}
+.slider-row.on { opacity: 1; pointer-events: all; }
+
+.sl-label {
+display: flex; align-items: center; gap: 5px;
+font-size: 12px; color: var(–muted);
+min-width: 82px; flex-shrink: 0;
+}
+.sl-label .ico { font-size: 15px; }
+
+input[type=range] {
+-webkit-appearance: none;
+flex: 1; height: 4px; border-radius: 2px;
+background: var(–panel); border: 1px solid var(–border);
+outline: none;
+}
+input[type=range]::-webkit-slider-thumb {
+-webkit-appearance: none;
+width: 20px; height: 20px; border-radius: 50%;
+cursor: pointer; border: 2.5px solid var(–bg);
+}
+#imgOpacity::-webkit-slider-thumb { background: var(–accent2); }
+
+.sl-val {
+font-size: 12px; font-weight: 600;
+color: var(–text); min-width: 36px; text-align: right;
+}
+
+/* Zoom pills */
+.zoom-pills { display: flex; gap: 5px; flex: 1; }
+.zp {
+flex: 1;
+padding: 6px 8px; border-radius: 14px;
+border: 1px solid var(–border);
+background: var(–panel); color: var(–muted);
+font-size: 11px; font-weight: 700;
+cursor: pointer; transition: all 0.15s;
+text-align: center;
+}
+.zp.on { background: rgba(255,77,109,0.18); border-color: var(–accent); color: var(–accent); }
+.zp:active { transform: scale(0.88); }
+
+/* Toast */
+.toast {
+position: fixed; bottom: 190px; left: 50%;
+transform: translateX(-50%) translateY(10px);
+background: rgba(20,20,35,0.85);
+backdrop-filter: blur(16px);
+border: 1px solid rgba(255,255,255,0.12);
+color: white; padding: 9px 18px;
+border-radius: 20px; font-size: 13px;
+z-index: 999; opacity: 0;
+transition: all 0.25s; white-space: nowrap;
+pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+#fileInput { display: none; }
+</style>
+
+</head>
+<body>
+
+<header>
+  <div class="logo">TraceCam <em>trace on paper</em></div>
+  <div class="header-btns">
+    <button class="icon-btn" id="resetBtn" title="Reset image position" style="display:none">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round">
+        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+      </svg>
+    </button>
+    <button class="icon-btn" id="flipHeaderBtn" title="Flip camera">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round">
+        <path d="M16 3l4 4-4 4"/><path d="M20 7H8a4 4 0 0 0-4 4v1"/>
+        <path d="M8 21l-4-4 4-4"/><path d="M4 17h12a4 4 0 0 0 4-4v-1"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<div class="view" id="view">
+  <!-- Layer 1: live camera -->
+  <video id="video" autoplay playsinline muted></video>
+
+  <!-- Layer 2: draggable/zoomable image -->
+
+  <div id="imgContainer">
+    <img id="overlayImg" alt="" draggable="false">
+    <div class="resize-handle" id="resizeHandle">⤡</div>
+  </div>
+
+  <!-- Status -->
+
+  <div class="status-bar" id="statusBar" style="display:none">
+    <div class="pill cam" id="camPill" style="display:none">
+      <div class="dot"></div> Camera Live
+    </div>
+    <div class="pill img" id="imgPill" style="display:none">
+      <div class="dot"></div> Image Overlay
+    </div>
+  </div>
+
+  <!-- Gesture hint -->
+
+  <div class="hint" id="hint">📌 Drag • 🤏 Pinch zoom • ⤡ Resize corner</div>
+
+  <!-- Onboarding -->
+
+  <div class="placeholder" id="placeholder">
+    <div class="ph-icon">✏️</div>
+    <h2>Trace on Paper</h2>
+    <p>Camera shows your real paper. Load image, position it anywhere, and trace!</p>
+    <div class="steps">
+      <div class="step" id="ph-cam">
+        <div class="step-num s1">1</div>
+        <div class="step-text">
+          <strong>Start Camera</strong>
+          <small>Point it at your paper</small>
+        </div>
+      </div>
+      <div class="step" id="ph-img">
+        <div class="step-num s2">2</div>
+        <div class="step-text">
+          <strong>Load Reference Image</strong>
+          <small>Drag, pinch, resize it!</small>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <!-- Action buttons -->
+  <div class="btn-row">
+    <button class="act-btn cam-btn" id="camBtn">
+      <span class="ico">📷</span>
+      <span id="camLabel">Camera Off</span>
+    </button>
+    <button class="act-btn img-btn" id="imgBtn">
+      <span class="ico">🖼️</span>
+      <span id="imgLabel">Load Image</span>
+    </button>
+    <button class="act-btn flip-btn" id="flipBtn">
+      <span class="ico">🔄</span>
+      <span>Flip</span>
+    </button>
+  </div>
+
+  <!-- Image opacity -->
+
+  <div class="slider-row" id="imgRow">
+    <div class="sl-label"><span class="ico">🖼️</span> Img opacity</div>
+    <input type="range" id="imgOpacity" min="5" max="100" value="50">
+    <div class="sl-val" id="imgOpacityVal">50%</div>
+  </div>
+
+  <!-- Camera zoom -->
+
+  <div class="slider-row" id="zoomRow">
+    <div class="sl-label"><span class="ico">🔍</span> Cam zoom</div>
+    <div class="zoom-pills">
+      <button class="zp" data-z="0.5">0.5×</button>
+      <button class="zp on" data-z="1">1×</button>
+      <button class="zp" data-z="2">2×</button>
+      <button class="zp" data-z="3">3×</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept="image/*">
+<div class="toast" id="toast"></div>
+
+<script>
+const video      = document.getElementById('video');
+const imgContainer = document.getElementById('imgContainer');
+const overlayImg = document.getElementById('overlayImg');
+const resizeHandle = document.getElementById('resizeHandle');
+const placeholder= document.getElementById('placeholder');
+const statusBar  = document.getElementById('statusBar');
+const camPill    = document.getElementById('camPill');
+const imgPill    = document.getElementById('imgPill');
+const camBtn     = document.getElementById('camBtn');
+const camLabel   = document.getElementById('camLabel');
+const imgBtn     = document.getElementById('imgBtn');
+const imgLabel   = document.getElementById('imgLabel');
+const imgRow     = document.getElementById('imgRow');
+const zoomRow    = document.getElementById('zoomRow');
+const hint       = document.getElementById('hint');
+const resetBtn   = document.getElementById('resetBtn');
+
+let stream = null;
+let cameraOn = false;
+let imageOn  = false;
+let facing   = 'environment';
+
+// Image transform state
+let imgX = 0, imgY = 0;  // position (translate)
+let imgScale = 1;         // scale
+let imgWidth = 300, imgHeight = 300; // size
+
+let isDragging = false;
+let isResizing = false;
+let isPinching = false;
+let dragStartX, dragStartY, startImgX, startImgY;
+let resizeStartW, resizeStartH, resizeStartX, resizeStartY;
+let pinchStartDist = 0, pinchStartScale = 1;
+
+// ── Toast ──────────────────────────────────────────
+function toast(msg, dur = 2400) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), dur);
+}
+
+// ── Placeholder ────────────────────────────────────
+function refreshUI() {
+  if (cameraOn || imageOn) placeholder.classList.add('hidden');
+  else placeholder.classList.remove('hidden');
+
+  statusBar.style.display = (cameraOn || imageOn) ? 'flex' : 'none';
+  camPill.style.display  = cameraOn  ? 'flex' : 'none';
+  imgPill.style.display  = imageOn   ? 'flex' : 'none';
+  resetBtn.style.display = imageOn   ? 'block' : 'none';
+}
+
+// ── Camera ─────────────────────────────────────────
+async function startCam() {
+  try {
+    stopStream();
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing, width:{ideal:1920}, height:{ideal:1080} },
+      audio: false
+    });
+    video.srcObject = stream;
+    video.classList.add('active');
+    cameraOn = true;
+    camBtn.classList.add('on');
+    camLabel.textContent = 'Camera On';
+    zoomRow.classList.add('on');
+    refreshUI();
+    toast('📷 Camera live — point at your paper!');
+  } catch(e) {
+    toast('⚠️ Camera access denied');
+  }
+}
+
+function stopStream() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+}
+
+function stopCam() {
+  stopStream();
+  video.srcObject = null;
+  video.classList.remove('active');
+  video.style.transform = 'scale(1)';
+  cameraOn = false;
+  camBtn.classList.remove('on');
+  camLabel.textContent = 'Camera Off';
+  zoomRow.classList.remove('on');
+  document.querySelectorAll('.zp').forEach(p => p.classList.remove('on'));
+  document.querySelector('.zp[data-z="1"]').classList.add('on');
+  refreshUI();
+}
+
+camBtn.addEventListener('click', () => cameraOn ? stopCam() : startCam());
+document.getElementById('ph-cam').addEventListener('click', startCam);
+
+// Flip
+function flipCam() {
+  facing = facing === 'environment' ? 'user' : 'environment';
+  if (cameraOn) startCam();
+  toast(facing === 'environment' ? '🔄 Back camera' : '🤳 Front camera');
+}
+document.getElementById('flipBtn').addEventListener('click', flipCam);
+document.getElementById('flipHeaderBtn').addEventListener('click', flipCam);
+
+// ── Image upload ────────────────────────────────────
+imgBtn.addEventListener('click', () => document.getElementById('fileInput').click());
+document.getElementById('ph-img').addEventListener('click', () => document.getElementById('fileInput').click());
+
+document.getElementById('fileInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    overlayImg.onload = () => {
+      imgContainer.classList.add('active');
+      imageOn = true;
+      imgBtn.classList.add('loaded');
+      imgLabel.textContent = 'Change Image';
+      imgRow.classList.add('on');
+      refreshUI();
+      resetImageTransform();
+      toast('🖼️ Image loaded! Drag, pinch, resize it', 3000);
+      hint.classList.add('show');
+      setTimeout(() => hint.classList.remove('show'), 4000);
+    };
+    overlayImg.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+
+// ── Image transform functions ───────────────────────
+function updateImageTransform() {
+  imgContainer.style.transform = `translate(${imgX}px, ${imgY}px) scale(${imgScale})`;
+  imgContainer.style.width = imgWidth + 'px';
+  imgContainer.style.height = imgHeight + 'px';
+}
+
+function resetImageTransform() {
+  imgX = 0; imgY = 0; imgScale = 1;
+  imgWidth = Math.min(window.innerWidth * 0.8, 500);
+  imgHeight = Math.min(window.innerHeight * 0.6, 500);
+  updateImageTransform();
+}
+
+resetBtn.addEventListener('click', () => {
+  resetImageTransform();
+  toast('↺ Image position reset');
+});
+
+// ── Drag to move ────────────────────────────────────
+imgContainer.addEventListener('touchstart', e => {
+  if (e.target === resizeHandle) return;
+  if (e.touches.length === 1) {
+    isDragging = true;
+    const touch = e.touches[0];
+    dragStartX = touch.clientX;
+    dragStartY = touch.clientY;
+    startImgX = imgX;
+    startImgY = imgY;
+    e.preventDefault();
+  } else if (e.touches.length === 2) {
+    // Start pinch
+    isPinching = true;
+    isDragging = false;
+    const dx = e.touches[1].clientX - e.touches[0].clientX;
+    const dy = e.touches[1].clientY - e.touches[0].clientY;
+    pinchStartDist = Math.sqrt(dx*dx + dy*dy);
+    pinchStartScale = imgScale;
+    e.preventDefault();
+  }
+});
+
+imgContainer.addEventListener('touchmove', e => {
+  if (isDragging && e.touches.length === 1) {
+    const touch = e.touches[0];
+    const dx = touch.clientX - dragStartX;
+    const dy = touch.clientY - dragStartY;
+    imgX = startImgX + dx;
+    imgY = startImgY + dy;
+    updateImageTransform();
+    e.preventDefault();
+  } else if (isPinching && e.touches.length === 2) {
+    const dx = e.touches[1].clientX - e.touches[0].clientX;
+    const dy = e.touches[1].clientY - e.touches[0].clientY;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const scale = (dist / pinchStartDist) * pinchStartScale;
+    imgScale = Math.max(0.3, Math.min(scale, 5));
+    updateImageTransform();
+    e.preventDefault();
+  }
+});
+
+imgContainer.addEventListener('touchend', e => {
+  if (e.touches.length === 0) {
+    isDragging = false;
+    isPinching = false;
+  } else if (e.touches.length === 1 && isPinching) {
+    // Switch back to drag
+    isPinching = false;
+    isDragging = true;
+    const touch = e.touches[0];
+    dragStartX = touch.clientX;
+    dragStartY = touch.clientY;
+    startImgX = imgX;
+    startImgY = imgY;
+  }
+});
+
+// ── Resize handle ────────────────────────────────────
+resizeHandle.addEventListener('touchstart', e => {
+  isResizing = true;
+  const touch = e.touches[0];
+  resizeStartX = touch.clientX;
+  resizeStartY = touch.clientY;
+  resizeStartW = imgWidth;
+  resizeStartH = imgHeight;
+  e.stopPropagation();
+  e.preventDefault();
+});
+
+document.addEventListener('touchmove', e => {
+  if (!isResizing) return;
+  const touch = e.touches[0];
+  const dx = touch.clientX - resizeStartX;
+  const dy = touch.clientY - resizeStartY;
+  const delta = Math.max(dx, dy);
+  imgWidth = Math.max(100, resizeStartW + delta);
+  imgHeight = Math.max(100, resizeStartH + delta);
+  updateImageTransform();
+  e.preventDefault();
+});
+
+document.addEventListener('touchend', () => {
+  isResizing = false;
+});
+
+// ── Opacity slider ──────────────────────────────────
+const opSlider = document.getElementById('imgOpacity');
+const opVal    = document.getElementById('imgOpacityVal');
+opSlider.addEventListener('input', e => {
+  const v = parseInt(e.target.value);
+  overlayImg.style.opacity = v / 100;
+  opVal.textContent = v + '%';
+});
+
+// ── Zoom pills ──────────────────────────────────────
+document.querySelectorAll('.zp').forEach(pill => {
+  pill.addEventListener('click', async () => {
+    const z = parseFloat(pill.dataset.z);
+    document.querySelectorAll('.zp').forEach(p => p.classList.remove('on'));
+    pill.classList.add('on');
+
+    if (!stream) return;
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    if (caps.zoom) {
+      const clamped = Math.min(Math.max(z, caps.zoom.min), caps.zoom.max);
+      try { await track.applyConstraints({ advanced: [{ zoom: clamped }] }); toast(`🔍 ${z}× zoom`); return; } catch(_) {}
+    }
+    video.style.transform = `scale(${z})`;
+    video.style.transformOrigin = 'center center';
+    toast(`🔍 ${z}× zoom`);
+  });
+});
+</script>
+
+</body>
+</html>
