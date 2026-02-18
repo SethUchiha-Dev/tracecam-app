@@ -40,7 +40,6 @@ flex-direction: column;
 user-select: none;
 }
 
-/* Force body to be fullscreen */
 body.fs-mode {
 position: fixed;
 top: 0;
@@ -143,6 +142,7 @@ display: none;
 z-index: 2;
 touch-action: none;
 cursor: move;
+will-change: transform;
 }
 #imgContainer.active { display: block; }
 
@@ -413,7 +413,7 @@ box-shadow: 0 4px 16px rgba(0,0,0,0.3);
   <!-- Layer 1: live camera -->
   <video id="video" autoplay playsinline muted></video>
 
-  <!-- Layer 2: draggable/zoomable image -->
+  <!-- Layer 2: draggable/zoomable/rotatable image -->
 
   <div id="imgContainer">
     <img id="overlayImg" alt="" draggable="false">
@@ -441,7 +441,7 @@ box-shadow: 0 4px 16px rgba(0,0,0,0.3);
 
   <!-- Gesture hint -->
 
-  <div class="hint" id="hint">📌 Drag • 🤏 Pinch zoom • ⤡ Resize</div>
+  <div class="hint" id="hint">📌 Drag • 🤏 Pinch zoom • 🔄 Rotate • ⤡ Resize</div>
 
   <!-- Onboarding -->
 
@@ -461,7 +461,7 @@ box-shadow: 0 4px 16px rgba(0,0,0,0.3);
         <div class="step-num s2">2</div>
         <div class="step-text">
           <strong>Load Reference Image</strong>
-          <small>Drag, pinch, resize it!</small>
+          <small>Drag • Rotate • Resize!</small>
         </div>
       </div>
     </div>
@@ -536,8 +536,9 @@ let facing   = 'environment';
 let fullscreenMode = false;
 
 // Image transform state
-let imgX = 0, imgY = 0;
-let imgScale = 1;
+let imgX = 0, imgY = 0;      // position
+let imgScale = 1;             // scale
+let imgRotation = 0;          // rotation in degrees
 let imgWidth = 300, imgHeight = 300;
 
 let isDragging = false;
@@ -546,6 +547,7 @@ let isPinching = false;
 let dragStartX, dragStartY, startImgX, startImgY;
 let resizeStartW, resizeStartH, resizeStartX, resizeStartY;
 let pinchStartDist = 0, pinchStartScale = 1;
+let pinchStartAngle = 0, pinchStartRotation = 0;
 
 // ── Fullscreen toggle ──────────────────────────────
 fsToggle.addEventListener('click', () => {
@@ -553,17 +555,11 @@ fsToggle.addEventListener('click', () => {
   
   if (fullscreenMode) {
     document.body.classList.add('fs-mode');
-    
-    // Change icon to "exit fullscreen"
     fsIcon.innerHTML = '<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>';
-    
     toast('🖼️ Fullscreen — tap ⤢ to exit', 2000);
   } else {
     document.body.classList.remove('fs-mode');
-    
-    // Change icon back to "enter fullscreen"
     fsIcon.innerHTML = '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>';
-    
     toast('↩ Exited fullscreen');
   }
 });
@@ -656,9 +652,9 @@ document.getElementById('fileInput').addEventListener('change', e => {
       imgRow.classList.add('on');
       refreshUI();
       resetImageTransform();
-      toast('🖼️ Loaded! Drag, pinch, resize', 3000);
+      toast('🖼️ Loaded! Drag • Rotate • Resize', 3000);
       hint.classList.add('show');
-      setTimeout(() => hint.classList.remove('show'), 4000);
+      setTimeout(() => hint.classList.remove('show'), 4500);
     };
     overlayImg.src = ev.target.result;
   };
@@ -668,13 +664,13 @@ document.getElementById('fileInput').addEventListener('change', e => {
 
 // ── Image transform ─────────────────────────────────
 function updateImageTransform() {
-  imgContainer.style.transform = `translate(${imgX}px, ${imgY}px) scale(${imgScale})`;
+  imgContainer.style.transform = `translate(${imgX}px, ${imgY}px) scale(${imgScale}) rotate(${imgRotation}deg)`;
   imgContainer.style.width = imgWidth + 'px';
   imgContainer.style.height = imgHeight + 'px';
 }
 
 function resetImageTransform() {
-  imgX = 0; imgY = 0; imgScale = 1;
+  imgX = 0; imgY = 0; imgScale = 1; imgRotation = 0;
   imgWidth = Math.min(window.innerWidth * 0.8, 500);
   imgHeight = Math.min(window.innerHeight * 0.6, 500);
   updateImageTransform();
@@ -685,10 +681,26 @@ resetBtn.addEventListener('click', () => {
   toast('↺ Image reset');
 });
 
-// ── Drag to move ────────────────────────────────────
+// ── Helper: calculate angle between two touch points ──
+function getAngle(touch1, touch2) {
+  const dx = touch2.clientX - touch1.clientX;
+  const dy = touch2.clientY - touch1.clientY;
+  return Math.atan2(dy, dx) * 180 / Math.PI;
+}
+
+// ── Helper: calculate distance between two touch points ──
+function getDistance(touch1, touch2) {
+  const dx = touch2.clientX - touch1.clientX;
+  const dy = touch2.clientY - touch1.clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// ── Drag / Pinch / Rotate ───────────────────────────
 imgContainer.addEventListener('touchstart', e => {
   if (e.target === resizeHandle) return;
+  
   if (e.touches.length === 1) {
+    // Single finger = drag
     isDragging = true;
     const touch = e.touches[0];
     dragStartX = touch.clientX;
@@ -697,18 +709,23 @@ imgContainer.addEventListener('touchstart', e => {
     startImgY = imgY;
     e.preventDefault();
   } else if (e.touches.length === 2) {
+    // Two fingers = pinch + rotate
     isPinching = true;
     isDragging = false;
-    const dx = e.touches[1].clientX - e.touches[0].clientX;
-    const dy = e.touches[1].clientY - e.touches[0].clientY;
-    pinchStartDist = Math.sqrt(dx*dx + dy*dy);
+    
+    pinchStartDist = getDistance(e.touches[0], e.touches[1]);
     pinchStartScale = imgScale;
+    
+    pinchStartAngle = getAngle(e.touches[0], e.touches[1]);
+    pinchStartRotation = imgRotation;
+    
     e.preventDefault();
   }
 });
 
 imgContainer.addEventListener('touchmove', e => {
   if (isDragging && e.touches.length === 1) {
+    // Drag
     const touch = e.touches[0];
     const dx = touch.clientX - dragStartX;
     const dy = touch.clientY - dragStartY;
@@ -717,11 +734,18 @@ imgContainer.addEventListener('touchmove', e => {
     updateImageTransform();
     e.preventDefault();
   } else if (isPinching && e.touches.length === 2) {
-    const dx = e.touches[1].clientX - e.touches[0].clientX;
-    const dy = e.touches[1].clientY - e.touches[0].clientY;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    const scale = (dist / pinchStartDist) * pinchStartScale;
-    imgScale = Math.max(0.3, Math.min(scale, 5));
+    // Pinch zoom + rotate
+    const dist = getDistance(e.touches[0], e.touches[1]);
+    const angle = getAngle(e.touches[0], e.touches[1]);
+    
+    // Scale
+    const scaleChange = dist / pinchStartDist;
+    imgScale = Math.max(0.3, Math.min(pinchStartScale * scaleChange, 5));
+    
+    // Rotate
+    const angleDiff = angle - pinchStartAngle;
+    imgRotation = pinchStartRotation + angleDiff;
+    
     updateImageTransform();
     e.preventDefault();
   }
@@ -732,6 +756,7 @@ imgContainer.addEventListener('touchend', e => {
     isDragging = false;
     isPinching = false;
   } else if (e.touches.length === 1 && isPinching) {
+    // Switch from pinch back to drag
     isPinching = false;
     isDragging = true;
     const touch = e.touches[0];
