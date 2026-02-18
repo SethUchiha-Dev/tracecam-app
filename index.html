@@ -35,6 +35,7 @@ flex-direction: column;
 user-select: none;
 }
 
+/* ── HEADER ── */
 header {
 display: flex;
 align-items: center;
@@ -44,7 +45,9 @@ background: var(–surface);
 border-bottom: 1px solid var(–border);
 flex-shrink: 0;
 z-index: 20;
+transition: transform 0.3s;
 }
+header.hidden { transform: translateY(-100%); }
 
 .logo {
 font-family: ‘Syne’, sans-serif;
@@ -95,7 +98,7 @@ z-index: 1;
 }
 video.active { display: block; }
 
-/* Uploaded image container — draggable, pinch-zoomable, rotatable */
+/* Uploaded image container */
 #imgContainer {
 position: absolute;
 top: 50%; left: 50%;
@@ -116,7 +119,6 @@ pointer-events: none;
 user-select: none;
 }
 
-/* Corner resize handle */
 .resize-handle {
 position: absolute;
 bottom: -10px; right: -10px;
@@ -159,10 +161,30 @@ border: 1px solid rgba(255,255,255,0.1);
 .pill.img .dot { background: var(–accent2); }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
+/* Fullscreen toggle button (floating) */
+.fs-toggle {
+position: absolute;
+bottom: 20px; right: 20px;
+width: 50px; height: 50px;
+border-radius: 50%;
+background: rgba(20,20,35,0.85);
+backdrop-filter: blur(12px);
+border: 1px solid rgba(255,255,255,0.15);
+display: flex;
+align-items: center;
+justify-content: center;
+z-index: 10;
+cursor: pointer;
+transition: all 0.2s;
+box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+.fs-toggle:active { transform: scale(0.9); }
+.fs-toggle svg { stroke: white; }
+
 /* Gesture hint */
 .hint {
 position: absolute;
-bottom: 20px; left: 50%;
+bottom: 80px; left: 50%;
 transform: translateX(-50%);
 background: rgba(20,20,35,0.8);
 backdrop-filter: blur(16px);
@@ -220,7 +242,9 @@ flex-shrink: 0;
 padding: 12px 16px 16px;
 display: flex; flex-direction: column; gap: 12px;
 z-index: 20;
+transition: transform 0.3s;
 }
+.controls.hidden { transform: translateY(100%); }
 
 .btn-row { display: flex; gap: 8px; }
 
@@ -318,7 +342,7 @@ pointer-events: none;
 </head>
 <body>
 
-<header>
+<header id="header">
   <div class="logo">TraceCam <em>trace on paper</em></div>
   <div class="header-btns">
     <button class="icon-btn" id="resetBtn" title="Reset image position" style="display:none">
@@ -357,6 +381,14 @@ pointer-events: none;
     </div>
   </div>
 
+  <!-- Fullscreen toggle -->
+
+  <button class="fs-toggle" id="fsToggle" title="Toggle fullscreen">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+    </svg>
+  </button>
+
   <!-- Gesture hint -->
 
   <div class="hint" id="hint">📌 Drag • 🤏 Pinch zoom • ⤡ Resize corner</div>
@@ -366,7 +398,7 @@ pointer-events: none;
   <div class="placeholder" id="placeholder">
     <div class="ph-icon">✏️</div>
     <h2>Trace on Paper</h2>
-    <p>Camera shows your real paper. Load image, position it anywhere, and trace!</p>
+    <p>Camera shows your paper. Load image, position it, and trace!</p>
     <div class="steps">
       <div class="step" id="ph-cam">
         <div class="step-num s1">1</div>
@@ -386,7 +418,7 @@ pointer-events: none;
   </div>
 </div>
 
-<div class="controls">
+<div class="controls" id="controls">
   <!-- Action buttons -->
   <div class="btn-row">
     <button class="act-btn cam-btn" id="camBtn">
@@ -444,16 +476,20 @@ const imgRow     = document.getElementById('imgRow');
 const zoomRow    = document.getElementById('zoomRow');
 const hint       = document.getElementById('hint');
 const resetBtn   = document.getElementById('resetBtn');
+const header     = document.getElementById('header');
+const controls   = document.getElementById('controls');
+const fsToggle   = document.getElementById('fsToggle');
 
 let stream = null;
 let cameraOn = false;
 let imageOn  = false;
 let facing   = 'environment';
+let fullscreenMode = false;
 
 // Image transform state
-let imgX = 0, imgY = 0;  // position (translate)
-let imgScale = 1;         // scale
-let imgWidth = 300, imgHeight = 300; // size
+let imgX = 0, imgY = 0;
+let imgScale = 1;
+let imgWidth = 300, imgHeight = 300;
 
 let isDragging = false;
 let isResizing = false;
@@ -461,6 +497,20 @@ let isPinching = false;
 let dragStartX, dragStartY, startImgX, startImgY;
 let resizeStartW, resizeStartH, resizeStartX, resizeStartY;
 let pinchStartDist = 0, pinchStartScale = 1;
+
+// ── Fullscreen toggle ──────────────────────────────
+fsToggle.addEventListener('click', () => {
+  fullscreenMode = !fullscreenMode;
+  if (fullscreenMode) {
+    header.classList.add('hidden');
+    controls.classList.add('hidden');
+    toast('🖼️ Fullscreen mode — tap button to exit');
+  } else {
+    header.classList.remove('hidden');
+    controls.classList.remove('hidden');
+    toast('↩ Controls restored');
+  }
+});
 
 // ── Toast ──────────────────────────────────────────
 function toast(msg, dur = 2400) {
@@ -560,7 +610,7 @@ document.getElementById('fileInput').addEventListener('change', e => {
   e.target.value = '';
 });
 
-// ── Image transform functions ───────────────────────
+// ── Image transform ─────────────────────────────────
 function updateImageTransform() {
   imgContainer.style.transform = `translate(${imgX}px, ${imgY}px) scale(${imgScale})`;
   imgContainer.style.width = imgWidth + 'px';
@@ -591,7 +641,6 @@ imgContainer.addEventListener('touchstart', e => {
     startImgY = imgY;
     e.preventDefault();
   } else if (e.touches.length === 2) {
-    // Start pinch
     isPinching = true;
     isDragging = false;
     const dx = e.touches[1].clientX - e.touches[0].clientX;
@@ -627,7 +676,6 @@ imgContainer.addEventListener('touchend', e => {
     isDragging = false;
     isPinching = false;
   } else if (e.touches.length === 1 && isPinching) {
-    // Switch back to drag
     isPinching = false;
     isDragging = true;
     const touch = e.touches[0];
